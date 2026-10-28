@@ -4,7 +4,7 @@
 Train an object detection and recognition model on a custom dataset of my own images using YOLO (Ultralytics).
 
 ## Dataset
-- Around 50-100 photos of myself, taken in different lighting, angles, and backgrounds
+- At least 500 photos of myself, taken in different lighting, angles, and backgrounds
 - Stored in Google Drive: <paste your Drive link here>
 - Annotated with bounding boxes and exported in YOLO format
 
