@@ -22,7 +22,7 @@ interface DetectResult {
 }
 
 // Uses same-origin relative path so Vite's HTTPS proxy forwards /api to FastAPI on port 8000
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 export default function App() {
   const [mode, setMode] = useState<"camera" | "upload">("camera");
