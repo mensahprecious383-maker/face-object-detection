@@ -1,0 +1,26 @@
+﻿# Secrets & Environment Variables
+.env
+.env.*
+!.env.example
+
+# Python Virtual Environment & Cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+
+# Node / React Build & Dependencies
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Logs & Editor Files
+logs/
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
