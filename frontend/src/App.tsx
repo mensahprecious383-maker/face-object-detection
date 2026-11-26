@@ -39,7 +39,7 @@ type OverlayStyle = "corners" | "box" | "spotlight";
 type InspectorTab = "detections" | "analytics" | "history" | "json";
 
 const ENV = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
-const DEFAULT_API_URL = (ENV.VITE_API_BASE_URL || ENV.VITE_API_URL || "").replace(/\/+$/, "");
+const DEFAULT_API_URL = (ENV.VITE_API_BASE_URL || ENV.VITE_API_URL || "https://face-object-detection-api.onrender.com").replace(/\/+$/, "");
 
 const CLASS_COLORS_LIGHT = ["#0284C7", "#0D9488", "#0369A1", "#059669", "#0891B2"];
 const CLASS_COLORS_DARK = ["#67B7DC", "#5EC2B2", "#7CC4FA", "#6EE7B7", "#5EEAD4"];
@@ -76,7 +76,7 @@ function generateSamplePhoto(): { dataUrl: string; width: number; height: number
   ctx.lineWidth = 2;
   ctx.strokeRect(48, 42, 864, 240);
 
-  // Subject 1 (Left — ARABA)
+  // Subject 1 (Left â€” ARABA)
   const drawPerson = (
     cx: number,
     cy: number,
@@ -134,7 +134,7 @@ function generateSamplePhoto(): { dataUrl: string; width: number; height: number
 
   ctx.fillStyle = "rgba(15, 23, 42, 0.52)";
   ctx.font = "600 16px system-ui, -apple-system, sans-serif";
-  ctx.fillText("Sample Indoor Verification Frame (960 × 600)", 68, 80);
+  ctx.fillText("Sample Indoor Verification Frame (960 Ã— 600)", 68, 80);
 
   return { dataUrl: canvas.toDataURL("image/jpeg", 0.92), width: w, height: h };
 }
@@ -401,14 +401,10 @@ export default function App() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("detections");
 
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => {
-    return (localStorage.getItem("yolo_api_base_url") ?? DEFAULT_API_URL).replace(/\/+$/, "");
+    const saved = (localStorage.getItem("yolo_api_base_url") || "").trim().replace(/\/+$/, "");
+    return saved || DEFAULT_API_URL;
   });
-  const [demoMode, setDemoMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem("fd_demo_mode");
-    if (saved === "true") return true;
-    if (saved === "false") return false;
-    return !DEFAULT_API_URL;
-  });
+  const [demoMode, setDemoMode] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"ready" | "checking" | "demo" | "offline">(
     DEFAULT_API_URL ? "ready" : "demo"
@@ -712,14 +708,15 @@ export default function App() {
 
       const t0 = performance.now();
       try {
-        if (demoMode || !apiBaseUrl) {
-          await new Promise((r) => setTimeout(r, 240));
-          runDemoInference(srcW || 960, srcH || 600, snapUrl, runMode);
+        const cleanBase = (apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, "");
+        if (!cleanBase) {
+          setBackendStatus("offline");
+          setErrorMsg("No backend URL configured. Open Settings and enter your Render URL.");
           return;
         }
 
-        const cleanBase = apiBaseUrl.replace(/\/+$/, "");
-        const endpoints = [`${cleanBase}/api/v1/vision/analyze`, `${cleanBase}/predict`];
+        const q = `?conf=${encodeURIComponent(String(Math.min(confThreshold, 0.15)))}&imgsz=${encodeURIComponent(String(imgsz))}`;
+        const endpoints = [`${cleanBase}/predict${q}`, `${cleanBase}/api/v1/vision/analyze`];
         let responseJson: unknown = null;
         let usedEndpoint = "";
         let lastErr = "";
@@ -737,7 +734,7 @@ export default function App() {
             const res = await fetch(ep, { method: "POST", body: fd });
             if (res.ok) {
               responseJson = await res.json();
-              usedEndpoint = ep.replace(cleanBase, "");
+              usedEndpoint = ep.replace(cleanBase, "").split("?")[0];
               break;
             } else {
               lastErr = `${res.status} ${res.statusText}`;
@@ -795,6 +792,9 @@ export default function App() {
       setMode("photo");
       setIsSampleActive(false);
       setLastFile(file);
+      setAllDetections([]);
+      setTelemetry(null);
+      setHoveredId(null);
       setErrorMsg("");
 
       const reader = new FileReader();
@@ -876,6 +876,9 @@ export default function App() {
   const startCamera = useCallback(
     async (requestedFacing = facingMode) => {
       stopCamera();
+      setAllDetections([]);
+      setTelemetry(null);
+      setHoveredId(null);
       setErrorMsg("");
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -1696,13 +1699,13 @@ export default function App() {
             <div className="fd-seg">
               <button
                 className={`fd-seg-btn ${mode === "photo" ? "active" : ""}`}
-                onClick={() => setMode("photo")}
+                onClick={() => { setMode("photo"); setAllDetections([]); setTelemetry(null); setHoveredId(null); }}
               >
                 <IconUpload /> Photo / Upload
               </button>
               <button
                 className={`fd-seg-btn ${mode === "camera" ? "active" : ""}`}
-                onClick={() => setMode("camera")}
+                onClick={() => { setMode("camera"); setAllDetections([]); setTelemetry(null); setHoveredId(null); }}
               >
                 <IconCamera /> Live Camera
               </button>
@@ -1795,6 +1798,7 @@ export default function App() {
                   className="fd-media"
                   playsInline
                   muted
+                  onLoadedMetadata={renderOverlay}
                   style={{ display: cameraActive ? "block" : "none" }}
                 />
                 {!cameraActive && (
@@ -1980,7 +1984,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">YOLO Inference</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "—"}
+                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "â€”"}
               </div>
               <div className="fd-tile-sub">{telemetry?.endpointUsed || "Waiting for frame"}</div>
             </Soft3DCard>
@@ -1992,7 +1996,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Total Roundtrip</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "—"}
+                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "â€”"}
               </div>
               <div className="fd-tile-sub">End-to-end latency</div>
             </Soft3DCard>
@@ -2004,7 +2008,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Avg Confidence</div>
               <div className="fd-tile-val">
-                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "—"}
+                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "â€”"}
               </div>
               <div className="fd-tile-sub">Current active frame</div>
             </Soft3DCard>
@@ -2070,19 +2074,19 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Avg Latency</span>
-                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "—"}</strong>
+                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "â€”"}</strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Min / Max</span>
                     <strong>
                       {latencyStats.avg
                         ? `${latencyStats.min.toFixed(0)} / ${latencyStats.max.toFixed(0)}`
-                        : "—"}
+                        : "â€”"}
                     </strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Est. FPS</span>
-                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "—"}</strong>
+                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "â€”"}</strong>
                   </div>
                 </div>
                 <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -2134,7 +2138,7 @@ export default function App() {
                             {item.detections.length} face{item.detections.length === 1 ? "" : "s"} ({item.mode})
                           </div>
                           <div className="fd-det-coords">
-                            {item.timestamp} · {item.telemetry.inferenceMs.toFixed(1)} ms
+                            {item.timestamp} Â· {item.telemetry.inferenceMs.toFixed(1)} ms
                           </div>
                         </div>
                       </div>
