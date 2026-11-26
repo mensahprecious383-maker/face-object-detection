@@ -580,7 +580,7 @@ export default function App() {
         }
 
         const q = `?conf=${encodeURIComponent(String(Math.min(confThreshold, 0.15)))}&imgsz=${encodeURIComponent(String(imgsz))}`;
-        const endpoints = [`${cleanBase}/predict${q}`, `${cleanBase}/api/v1/vision/analyze`];
+        const endpoints = [`${cleanBase}/api/v1/detect${q}`, `${cleanBase}/predict${q}`, `${cleanBase}/api/v1/vision/analyze`];
         let responseJson: unknown = null;
         let usedEndpoint = "";
         let lastErr = "";
@@ -610,7 +610,7 @@ export default function App() {
             }
           } catch (err) {
             if (err instanceof DOMException && err.name === "AbortError") {
-              lastErr = "Request timed out after 35s (Render may be waking up—click Snap Once again)";
+              lastErr = "Request timed out after 35s (Render may be waking upâ€”click Snap Once again)";
               break;
             }
             lastErr = err instanceof Error ? err.message : "Network error";
@@ -794,7 +794,7 @@ export default function App() {
     const h = video.videoHeight || video.clientHeight;
     if (!w || !h) {
       setStatusNote("");
-      setErrorMsg("Camera frame not ready yet—wait 1 second and click Snap Once again.");
+      setErrorMsg("Camera frame not ready yetâ€”wait 1 second and click Snap Once again.");
       return;
     }
 
@@ -1892,7 +1892,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">YOLO Inference</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "—"}
+                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "â€”"}
               </div>
               <div className="fd-tile-sub">{telemetry?.endpointUsed || "Waiting for frame"}</div>
             </Soft3DCard>
@@ -1904,7 +1904,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Total Roundtrip</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "—"}
+                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "â€”"}
               </div>
               <div className="fd-tile-sub">End-to-end latency</div>
             </Soft3DCard>
@@ -1916,7 +1916,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Avg Confidence</div>
               <div className="fd-tile-val">
-                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "—"}
+                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "â€”"}
               </div>
               <div className="fd-tile-sub">Current active frame</div>
             </Soft3DCard>
@@ -1982,19 +1982,19 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Avg Latency</span>
-                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "—"}</strong>
+                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "â€”"}</strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Min / Max</span>
                     <strong>
                       {latencyStats.avg
                         ? `${latencyStats.min.toFixed(0)} / ${latencyStats.max.toFixed(0)}`
-                        : "—"}
+                        : "â€”"}
                     </strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Est. FPS</span>
-                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "—"}</strong>
+                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "â€”"}</strong>
                   </div>
                 </div>
                 <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -2046,7 +2046,7 @@ export default function App() {
                             {item.detections.length} face{item.detections.length === 1 ? "" : "s"} ({item.mode})
                           </div>
                           <div className="fd-det-coords">
-                            {item.timestamp} · {item.telemetry.inferenceMs.toFixed(1)} ms
+                            {item.timestamp} Â· {item.telemetry.inferenceMs.toFixed(1)} ms
                           </div>
                         </div>
                       </div>
