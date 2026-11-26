@@ -39,7 +39,11 @@ type OverlayStyle = "corners" | "box" | "spotlight";
 type InspectorTab = "detections" | "analytics" | "history" | "json";
 
 const ENV = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
-const DEFAULT_API_URL = (ENV.VITE_API_BASE_URL || ENV.VITE_API_URL || "https://face-object-detection-api.onrender.com").replace(/\/+$/, "");
+const DEFAULT_API_URL = (
+  ENV.VITE_API_BASE_URL ||
+  ENV.VITE_API_URL ||
+  "https://face-object-detection-api.onrender.com"
+).replace(/\/+$/, "");
 
 const CLASS_COLORS_LIGHT = ["#0284C7", "#0D9488", "#0369A1", "#059669", "#0891B2"];
 const CLASS_COLORS_DARK = ["#67B7DC", "#5EC2B2", "#7CC4FA", "#6EE7B7", "#5EEAD4"];
@@ -53,98 +57,12 @@ function getClassColor(label: string, theme: ThemeMode): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-function generateSamplePhoto(): { dataUrl: string; width: number; height: number } {
-  const w = 960;
-  const h = 600;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return { dataUrl: "", width: w, height: h };
-
-  const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, "#E3F2F8");
-  bg.addColorStop(0.55, "#EEF7F6");
-  bg.addColorStop(1, "#DCEEEB");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
-
-  // Subtle classroom architectural backdrop
-  ctx.fillStyle = "rgba(15, 76, 117, 0.06)";
-  ctx.fillRect(48, 42, 864, 240);
-  ctx.strokeStyle = "rgba(15, 76, 117, 0.12)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(48, 42, 864, 240);
-
-  // Subject 1 (Left â€” ARABA)
-  const drawPerson = (
-    cx: number,
-    cy: number,
-    skin: string,
-    shirt: string,
-    hair: string,
-    scale = 1
-  ) => {
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.scale(scale, scale);
-
-    // Shoulders
-    ctx.fillStyle = shirt;
-    ctx.beginPath();
-    ctx.ellipse(0, 155, 118, 95, 0, Math.PI, Math.PI * 2);
-    ctx.fill();
-
-    // Neck
-    ctx.fillStyle = skin;
-    ctx.fillRect(-22, 52, 44, 48);
-
-    // Hair back
-    ctx.fillStyle = hair;
-    ctx.beginPath();
-    ctx.ellipse(0, -10, 74, 86, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Face
-    ctx.fillStyle = skin;
-    ctx.beginPath();
-    ctx.ellipse(0, 2, 62, 76, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Eyes
-    ctx.fillStyle = "#1E1B18";
-    ctx.beginPath();
-    ctx.arc(-22, -8, 5, 0, Math.PI * 2);
-    ctx.arc(22, -8, 5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Smile
-    ctx.strokeStyle = "#3B2218";
-    ctx.lineWidth = 3.5;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.arc(0, 22, 18, 0.15 * Math.PI, 0.85 * Math.PI);
-    ctx.stroke();
-
-    ctx.restore();
-  };
-
-  drawPerson(320, 295, "#7A4B31", "#0E7490", "#1A1412", 1.05);
-  drawPerson(645, 315, "#693E28", "#0F766E", "#181311", 0.96);
-
-  ctx.fillStyle = "rgba(15, 23, 42, 0.52)";
-  ctx.font = "600 16px system-ui, -apple-system, sans-serif";
-  ctx.fillText("Sample Indoor Verification Frame (960 Ã— 600)", 68, 80);
-
-  return { dataUrl: canvas.toDataURL("image/jpeg", 0.92), width: w, height: h };
-}
-
-function cropFacesFromImage(
-  imgEl: HTMLImageElement | HTMLVideoElement,
+function cropFacesFromMedia(
+  mediaEl: HTMLImageElement | HTMLVideoElement,
   detections: Detection[]
 ): Detection[] {
-  const srcW = "naturalWidth" in imgEl ? imgEl.naturalWidth : imgEl.videoWidth;
-  const srcH = "naturalHeight" in imgEl ? imgEl.naturalHeight : imgEl.videoHeight;
+  const srcW = "naturalWidth" in mediaEl ? mediaEl.naturalWidth : mediaEl.videoWidth;
+  const srcH = "naturalHeight" in mediaEl ? mediaEl.naturalHeight : mediaEl.videoHeight;
   if (!srcW || !srcH) return detections;
 
   return detections.map((det) => {
@@ -161,7 +79,7 @@ function cropFacesFromImage(
       c.height = 96;
       const ctx = c.getContext("2d");
       if (!ctx) return det;
-      ctx.drawImage(imgEl, x, y, w, h, 0, 0, 96, 96);
+      ctx.drawImage(mediaEl, x, y, w, h, 0, 0, 96, 96);
       return { ...det, cropUrl: c.toDataURL("image/jpeg", 0.85) };
     } catch {
       return det;
@@ -229,7 +147,6 @@ function normalizeDetections(
         y2 = Number(obj.y2);
       }
 
-      // Handle normalized 0..1 coordinates if backend returns them
       if (x2 <= 1 && y2 <= 1 && x2 > 0 && y2 > 0) {
         x1 *= fallbackW;
         x2 *= fallbackW;
@@ -260,20 +177,12 @@ interface Soft3DCardProps {
   children: React.ReactNode;
   className?: string;
   enabled: boolean;
-  onClick?: () => void;
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
 }
 
-function Soft3DCard({
-  children,
-  className = "",
-  enabled,
-  onClick,
-  onMouseEnter,
-  onMouseLeave,
-}: Soft3DCardProps) {
-  const [transform, setTransform] = useState("perspective(1100px) rotateX(0deg) rotateY(0deg) translateY(0px)");
+function Soft3DCard({ children, className = "", enabled }: Soft3DCardProps) {
+  const [transform, setTransform] = useState(
+    "perspective(1100px) rotateX(0deg) rotateY(0deg) translateY(0px)"
+  );
 
   const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!enabled) return;
@@ -289,7 +198,6 @@ function Soft3DCard({
 
   const handleLeave = () => {
     setTransform("perspective(1100px) rotateX(0deg) rotateY(0deg) translateY(0px)");
-    onMouseLeave?.();
   };
 
   return (
@@ -297,16 +205,13 @@ function Soft3DCard({
       className={`soft-3d-card ${className}`}
       style={{ transform: enabled ? transform : undefined }}
       onMouseMove={handleMove}
-      onMouseEnter={onMouseEnter}
       onMouseLeave={handleLeave}
-      onClick={onClick}
     >
       {children}
     </div>
   );
 }
 
-/* Inline SVG Icons */
 const IconScan = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
@@ -404,11 +309,8 @@ export default function App() {
     const saved = (localStorage.getItem("yolo_api_base_url") || "").trim().replace(/\/+$/, "");
     return saved || DEFAULT_API_URL;
   });
-  const [demoMode, setDemoMode] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<"ready" | "checking" | "demo" | "offline">(
-    DEFAULT_API_URL ? "ready" : "demo"
-  );
+  const [backendStatus, setBackendStatus] = useState<"ready" | "checking" | "offline">("checking");
   const [healthMessage, setHealthMessage] = useState("");
 
   // Inference controls
@@ -422,8 +324,8 @@ export default function App() {
   // Media & detection state
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lastFile, setLastFile] = useState<File | null>(null);
-  const [isSampleActive, setIsSampleActive] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [statusNote, setStatusNote] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [allDetections, setAllDetections] = useState<Detection[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -436,7 +338,7 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [autoDetect, setAutoDetect] = useState(false);
-  const [cameraIntervalMs, setCameraIntervalMs] = useState<number>(1000);
+  const [cameraIntervalMs, setCameraIntervalMs] = useState<number>(1200);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -445,6 +347,20 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const inFlightRef = useRef<boolean>(false);
 
+  // Clear any leftover demo flag and wake Render backend on startup
+  useEffect(() => {
+    localStorage.removeItem("fd_demo_mode");
+    const clean = apiBaseUrl.replace(/\/+$/, "");
+    if (!clean) {
+      setBackendStatus("offline");
+      return;
+    }
+    setBackendStatus("checking");
+    fetch(`${clean}/health`)
+      .then((res) => setBackendStatus(res.ok ? "ready" : "offline"))
+      .catch(() => setBackendStatus("offline"));
+  }, [apiBaseUrl]);
+
   useEffect(() => {
     localStorage.setItem("fd_theme", theme);
   }, [theme]);
@@ -452,12 +368,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("fd_motion3d", motion3D ? "subtle" : "off");
   }, [motion3D]);
-
-  useEffect(() => {
-    localStorage.setItem("fd_demo_mode", String(demoMode));
-    if (demoMode) setBackendStatus("demo");
-    else if (apiBaseUrl) setBackendStatus("ready");
-  }, [demoMode, apiBaseUrl]);
 
   const visibleDetections = useMemo(
     () => allDetections.filter((d) => d.confidence >= confThreshold),
@@ -478,7 +388,6 @@ export default function App() {
     return { avg, min, max, fps: avg > 0 ? 1000 / avg : 0 };
   }, [latencySeries]);
 
-  // Draw overlays on canvas matching rendered object-contain media box
   const renderOverlay = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -565,7 +474,6 @@ export default function App() {
         ctx.lineTo(x, y + h - cLen);
         ctx.stroke();
 
-        // Subtle center reticle
         const cx = x + w / 2;
         const cy = y + h / 2;
         ctx.save();
@@ -644,54 +552,6 @@ export default function App() {
     []
   );
 
-  const runDemoInference = useCallback(
-    (w: number, h: number, snapUrl: string, runMode: "photo" | "camera") => {
-      const infMs = Number((58 + Math.random() * 18).toFixed(2));
-      const rtMs = Number((infMs + 42 + Math.random() * 35).toFixed(2));
-      const demoDets: Detection[] = [
-        {
-          id: "demo-araba",
-          label: "ARABA",
-          confidence: 0.903,
-          bbox: {
-            x1: Math.round(w * 0.255),
-            y1: Math.round(h * 0.345),
-            x2: Math.round(w * 0.415),
-            y2: Math.round(h * 0.635),
-          },
-        },
-        {
-          id: "demo-sammy",
-          label: "SAMMY",
-          confidence: 0.838,
-          bbox: {
-            x1: Math.round(w * 0.605),
-            y1: Math.round(h * 0.39),
-            x2: Math.round(w * 0.745),
-            y2: Math.round(h * 0.66),
-          },
-        },
-      ];
-
-      const mediaEl = runMode === "camera" ? videoRef.current : imgRef.current;
-      const withCrops = mediaEl ? cropFacesFromImage(mediaEl, demoDets) : demoDets;
-      recordRun(
-        withCrops,
-        {
-          inferenceMs: infMs,
-          roundtripMs: rtMs,
-          sourceWidth: w,
-          sourceHeight: h,
-          timestamp: new Date().toLocaleTimeString(),
-          endpointUsed: "Demo Sandbox",
-        },
-        snapUrl,
-        runMode
-      );
-    },
-    [recordRun]
-  );
-
   const runInferenceOnBlob = useCallback(
     async (
       blob: Blob,
@@ -705,8 +565,12 @@ export default function App() {
       inFlightRef.current = true;
       setIsAnalyzing(true);
       setErrorMsg("");
+      setStatusNote("Sending frame to YOLO26 backend...");
 
       const t0 = performance.now();
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 35000);
+
       try {
         const cleanBase = (apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, "");
         if (!cleanBase) {
@@ -731,24 +595,31 @@ export default function App() {
               fd.append("model_id", "yolo26-exp");
               fd.append("verifyBiometrics", "false");
             }
-            const res = await fetch(ep, { method: "POST", body: fd });
+            const res = await fetch(ep, {
+              method: "POST",
+              body: fd,
+              signal: controller.signal,
+            });
             if (res.ok) {
               responseJson = await res.json();
               usedEndpoint = ep.replace(cleanBase, "").split("?")[0];
               break;
             } else {
-              lastErr = `${res.status} ${res.statusText}`;
+              const errBody = await res.text().catch(() => "");
+              lastErr = `HTTP ${res.status}${errBody ? `: ${errBody.slice(0, 120)}` : ""}`;
             }
           } catch (err) {
+            if (err instanceof DOMException && err.name === "AbortError") {
+              lastErr = "Request timed out after 35s (Render may be waking up—click Snap Once again)";
+              break;
+            }
             lastErr = err instanceof Error ? err.message : "Network error";
           }
         }
 
         if (!responseJson) {
           setBackendStatus("offline");
-          setErrorMsg(
-            `Backend unreachable (${lastErr}). Check Render URL in Settings or switch to Demo Sandbox.`
-          );
+          setErrorMsg(`Inference failed (${lastErr}). Click Settings -> Ping /health to wake Render.`);
           return;
         }
 
@@ -760,7 +631,13 @@ export default function App() {
           srcH || 600
         );
         const mediaEl = runMode === "camera" ? videoRef.current : imgRef.current;
-        const withCrops = mediaEl ? cropFacesFromImage(mediaEl, detections) : detections;
+        const withCrops = mediaEl ? cropFacesFromMedia(mediaEl, detections) : detections;
+
+        setStatusNote(
+          detections.length === 0
+            ? "Frame analyzed: 0 faces detected above threshold."
+            : `Detected ${detections.length} face${detections.length === 1 ? "" : "s"}.`
+        );
 
         recordRun(
           withCrops,
@@ -776,11 +653,13 @@ export default function App() {
           runMode
         );
       } finally {
+        window.clearTimeout(timeoutId);
         setIsAnalyzing(false);
+        setStatusNote("");
         inFlightRef.current = false;
       }
     },
-    [apiBaseUrl, demoMode, confThreshold, imgsz, recordRun, runDemoInference]
+    [apiBaseUrl, confThreshold, imgsz, recordRun]
   );
 
   const handleFileSelected = useCallback(
@@ -790,7 +669,6 @@ export default function App() {
         return;
       }
       setMode("photo");
-      setIsSampleActive(false);
       setLastFile(file);
       setAllDetections([]);
       setTelemetry(null);
@@ -804,7 +682,14 @@ export default function App() {
         const img = new Image();
         img.onload = () => {
           setTimeout(() => {
-            void runInferenceOnBlob(file, file.name, img.naturalWidth, img.naturalHeight, dataUrl, "photo");
+            void runInferenceOnBlob(
+              file,
+              file.name,
+              img.naturalWidth,
+              img.naturalHeight,
+              dataUrl,
+              "photo"
+            );
           }, 60);
         };
         img.src = dataUrl;
@@ -814,23 +699,7 @@ export default function App() {
     [runInferenceOnBlob]
   );
 
-  const handleLoadSample = useCallback(() => {
-    setMode("photo");
-    setIsSampleActive(true);
-    setLastFile(null);
-    setErrorMsg("");
-    const sample = generateSamplePhoto();
-    setImageUrl(sample.dataUrl);
-    setTimeout(() => {
-      runDemoInference(sample.width, sample.height, sample.dataUrl, "photo");
-    }, 100);
-  }, [runDemoInference]);
-
   const handleRerun = useCallback(() => {
-    if (isSampleActive && imageUrl) {
-      runDemoInference(960, 600, imageUrl, "photo");
-      return;
-    }
     if (lastFile && imgRef.current) {
       void runInferenceOnBlob(
         lastFile,
@@ -841,9 +710,8 @@ export default function App() {
         "photo"
       );
     }
-  }, [isSampleActive, imageUrl, lastFile, runDemoInference, runInferenceOnBlob]);
+  }, [imageUrl, lastFile, runInferenceOnBlob]);
 
-  // Global Ctrl+V clipboard paste support
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -860,10 +728,10 @@ export default function App() {
     return () => window.removeEventListener("paste", onPaste);
   }, [handleFileSelected]);
 
-  // Camera controls
   const stopCamera = useCallback(() => {
     setAutoDetect(false);
     setCameraActive(false);
+    setStatusNote("");
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -898,31 +766,63 @@ export default function App() {
     [facingMode, stopCamera]
   );
 
-  const captureCameraFrame = useCallback(() => {
+  const captureCameraFrame = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) return;
+    if (!video || !cameraActive) {
+      setErrorMsg("Start the camera first before capturing a frame.");
+      return;
+    }
+    if (inFlightRef.current) return;
+
+    // Wait briefly if metadata/first frame hasn't settled yet
+    if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      setStatusNote("Waiting for camera frame...");
+      await new Promise<void>((resolve) => {
+        const onReady = () => {
+          video.removeEventListener("loadeddata", onReady);
+          resolve();
+        };
+        video.addEventListener("loadeddata", onReady);
+        window.setTimeout(() => {
+          video.removeEventListener("loadeddata", onReady);
+          resolve();
+        }, 1200);
+      });
+    }
+
+    const w = video.videoWidth || video.clientWidth;
+    const h = video.videoHeight || video.clientHeight;
+    if (!w || !h) {
+      setStatusNote("");
+      setErrorMsg("Camera frame not ready yet—wait 1 second and click Snap Once again.");
+      return;
+    }
+
     const c = document.createElement("canvas");
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
+    c.width = w;
+    c.height = h;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
-    const snapUrl = c.toDataURL("image/jpeg", 0.85);
-    c.toBlob(
-      (blob) => {
-        if (blob) {
-          void runInferenceOnBlob(blob, "webcam_frame.jpg", video.videoWidth, video.videoHeight, snapUrl, "camera");
-        }
-      },
-      "image/jpeg",
-      0.88
+    ctx.drawImage(video, 0, 0, w, h);
+    const snapUrl = c.toDataURL("image/jpeg", 0.88);
+
+    const blob: Blob | null = await new Promise((resolve) =>
+      c.toBlob((b) => resolve(b), "image/jpeg", 0.88)
     );
-  }, [runInferenceOnBlob]);
+
+    if (blob) {
+      void runInferenceOnBlob(blob, "webcam_frame.jpg", w, h, snapUrl, "camera");
+    } else {
+      const res = await fetch(snapUrl);
+      const fallbackBlob = await res.blob();
+      void runInferenceOnBlob(fallbackBlob, "webcam_frame.jpg", w, h, snapUrl, "camera");
+    }
+  }, [cameraActive, runInferenceOnBlob]);
 
   useEffect(() => {
     if (!autoDetect || !cameraActive || mode !== "camera") return;
     const id = window.setInterval(() => {
-      captureCameraFrame();
+      void captureCameraFrame();
     }, cameraIntervalMs);
     return () => window.clearInterval(id);
   }, [autoDetect, cameraActive, mode, cameraIntervalMs, captureCameraFrame]);
@@ -933,12 +833,17 @@ export default function App() {
 
   useEffect(() => () => stopCamera(), [stopCamera]);
 
-  // Export high-res annotated PNG
   const handleExportPng = () => {
     const mediaEl = mode === "camera" ? videoRef.current : imgRef.current;
     if (!mediaEl) return;
-    const natW = mode === "camera" ? (mediaEl as HTMLVideoElement).videoWidth : (mediaEl as HTMLImageElement).naturalWidth;
-    const natH = mode === "camera" ? (mediaEl as HTMLVideoElement).videoHeight : (mediaEl as HTMLImageElement).naturalHeight;
+    const natW =
+      mode === "camera"
+        ? (mediaEl as HTMLVideoElement).videoWidth
+        : (mediaEl as HTMLImageElement).naturalWidth;
+    const natH =
+      mode === "camera"
+        ? (mediaEl as HTMLVideoElement).videoHeight
+        : (mediaEl as HTMLImageElement).naturalHeight;
     if (!natW || !natH) return;
 
     const out = document.createElement("canvas");
@@ -1013,7 +918,7 @@ export default function App() {
     const clean = apiBaseUrl.replace(/\/+$/, "");
     localStorage.setItem("yolo_api_base_url", clean);
     if (!clean) {
-      setHealthMessage("Enter your Render backend URL first, or keep Demo Sandbox enabled.");
+      setHealthMessage("Enter your Render backend URL first.");
       return;
     }
     setBackendStatus("checking");
@@ -1024,7 +929,6 @@ export default function App() {
       const ms = Math.round(performance.now() - t0);
       if (res.ok) {
         setBackendStatus("ready");
-        setDemoMode(false);
         setHealthMessage(`Connected successfully (${ms} ms). Live backend active.`);
       } else {
         setBackendStatus("offline");
@@ -1045,7 +949,12 @@ export default function App() {
           imgsz,
           telemetry,
           count: visibleDetections.length,
-          detections: visibleDetections.map(({ cropUrl: _c, ...rest }) => rest),
+          detections: visibleDetections.map((d) => ({
+            id: d.id,
+            label: d.label,
+            confidence: d.confidence,
+            bbox: d.bbox,
+          })),
         },
         null,
         2
@@ -1053,7 +962,6 @@ export default function App() {
     [confThreshold, imgsz, telemetry, visibleDetections]
   );
 
-  // Build SVG sparkline path
   const sparklinePath = useMemo(() => {
     if (latencySeries.length < 2) return "";
     const max = Math.max(...latencySeries, 100);
@@ -1137,7 +1045,6 @@ export default function App() {
           will-change: transform;
         }
 
-        /* Header */
         .fd-nav {
           position: sticky;
           top: 0;
@@ -1199,7 +1106,7 @@ export default function App() {
           border-radius: 999px;
           background: #10B981;
         }
-        .fd-dot.demo { background: #0EA5E9; }
+        .fd-dot.checking { background: #0EA5E9; }
         .fd-dot.offline { background: #F59E0B; }
 
         .fd-nav-actions {
@@ -1222,11 +1129,8 @@ export default function App() {
           cursor: pointer;
           transition: background 200ms ease, border-color 200ms ease;
         }
-        .fd-icon-btn:hover {
-          border-color: var(--accent);
-        }
+        .fd-icon-btn:hover { border-color: var(--accent); }
 
-        /* Main Layout */
         .fd-main {
           max-width: 1320px;
           margin: 22px auto 0;
@@ -1251,7 +1155,6 @@ export default function App() {
           padding: 18px;
         }
 
-        /* Segmented Control */
         .fd-mode-row {
           display: flex;
           align-items: center;
@@ -1288,7 +1191,6 @@ export default function App() {
           box-shadow: 0 3px 10px rgba(2, 132, 199, 0.22);
         }
 
-        /* HUD Bar */
         .fd-hud {
           display: flex;
           align-items: center;
@@ -1327,7 +1229,6 @@ export default function App() {
           border-color: var(--accent);
         }
 
-        /* Stage */
         .fd-stage {
           position: relative;
           width: 100%;
@@ -1378,7 +1279,6 @@ export default function App() {
           color: var(--muted);
         }
 
-        /* Action Bar */
         .fd-actions {
           margin-top: 14px;
           display: flex;
@@ -1417,8 +1317,8 @@ export default function App() {
           gap: 7px;
         }
         .fd-btn-secondary:hover { border-color: var(--accent); }
+        .fd-btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
 
-        /* Controls Bar */
         .fd-controls {
           margin-top: 14px;
           padding-top: 14px;
@@ -1445,7 +1345,6 @@ export default function App() {
           cursor: pointer;
         }
 
-        /* Right Column: 2x2 Metric Cards */
         .fd-right {
           display: flex;
           flex-direction: column;
@@ -1499,7 +1398,6 @@ export default function App() {
           opacity: 0.8;
         }
 
-        /* Inspector Tabs & Rows */
         .fd-tabs {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -1591,6 +1489,16 @@ export default function App() {
           font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
 
+        .fd-note {
+          margin-top: 10px;
+          padding: 8px 12px;
+          border-radius: 10px;
+          font-size: 12.5px;
+          background: var(--pill-bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+        }
+
         .fd-error {
           margin-top: 10px;
           padding: 10px 12px;
@@ -1601,7 +1509,6 @@ export default function App() {
           color: var(--text);
         }
 
-        /* Settings Modal */
         .fd-modal-bg {
           position: fixed;
           inset: 0;
@@ -1649,15 +1556,13 @@ export default function App() {
           <div className="fd-status-pill">
             <span
               className={`fd-dot ${
-                backendStatus === "demo" ? "demo" : backendStatus === "offline" ? "offline" : ""
+                backendStatus === "checking" ? "checking" : backendStatus === "offline" ? "offline" : ""
               }`}
             />
             {isAnalyzing
               ? "Running Inference..."
-              : backendStatus === "demo"
-              ? "Demo Sandbox"
               : backendStatus === "checking"
-              ? "Checking Backend..."
+              ? "Waking Backend..."
               : backendStatus === "offline"
               ? "Backend Offline"
               : "API Connected"}
@@ -1699,21 +1604,27 @@ export default function App() {
             <div className="fd-seg">
               <button
                 className={`fd-seg-btn ${mode === "photo" ? "active" : ""}`}
-                onClick={() => { setMode("photo"); setAllDetections([]); setTelemetry(null); setHoveredId(null); }}
+                onClick={() => {
+                  setMode("photo");
+                  setAllDetections([]);
+                  setTelemetry(null);
+                  setHoveredId(null);
+                }}
               >
                 <IconUpload /> Photo / Upload
               </button>
               <button
                 className={`fd-seg-btn ${mode === "camera" ? "active" : ""}`}
-                onClick={() => { setMode("camera"); setAllDetections([]); setTelemetry(null); setHoveredId(null); }}
+                onClick={() => {
+                  setMode("camera");
+                  setAllDetections([]);
+                  setTelemetry(null);
+                  setHoveredId(null);
+                }}
               >
                 <IconCamera /> Live Camera
               </button>
             </div>
-
-            <button className="fd-chip on" onClick={handleLoadSample}>
-              Try Sample Photo
-            </button>
           </div>
 
           {/* Overlay HUD */}
@@ -1775,20 +1686,15 @@ export default function App() {
                   </div>
                   <h3>Upload or Drop a Photo</h3>
                   <p>
-                    Drop an image here, paste from clipboard (Ctrl+V), or load the sample classroom
-                    frame to preview bounding boxes immediately.
+                    Select a portrait or group photo, drag and drop it here, or paste from your
+                    clipboard (Ctrl+V) to run live YOLO26 face detection.
                   </p>
-                  <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-                    <button
-                      className="fd-btn-primary"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <IconUpload /> Choose Photo
-                    </button>
-                    <button className="fd-btn-secondary" onClick={handleLoadSample}>
-                      Try Sample
-                    </button>
-                  </div>
+                  <button
+                    className="fd-btn-primary"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <IconUpload /> Choose Photo
+                  </button>
                 </div>
               )
             ) : (
@@ -1799,6 +1705,7 @@ export default function App() {
                   playsInline
                   muted
                   onLoadedMetadata={renderOverlay}
+                  onLoadedData={renderOverlay}
                   style={{ display: cameraActive ? "block" : "none" }}
                 />
                 {!cameraActive && (
@@ -1841,7 +1748,7 @@ export default function App() {
                 <button
                   className="fd-btn-secondary"
                   onClick={handleRerun}
-                  disabled={!imageUrl || isAnalyzing}
+                  disabled={!lastFile || isAnalyzing}
                 >
                   <IconRefresh /> Re-run Detection
                 </button>
@@ -1852,7 +1759,7 @@ export default function App() {
                       setImageUrl("");
                       setAllDetections([]);
                       setLastFile(null);
-                      setIsSampleActive(false);
+                      setTelemetry(null);
                     }}
                   >
                     Clear
@@ -1875,10 +1782,10 @@ export default function App() {
                     </button>
                     <button
                       className="fd-btn-secondary"
-                      onClick={captureCameraFrame}
+                      onClick={() => void captureCameraFrame()}
                       disabled={isAnalyzing}
                     >
-                      Snap Once
+                      {isAnalyzing ? "Analyzing..." : "Snap Once"}
                     </button>
                     <button
                       className="fd-btn-secondary"
@@ -1894,7 +1801,7 @@ export default function App() {
                       Stop
                     </button>
                     <div className="fd-chip-group">
-                      {[500, 1000, 2000].map((ms) => (
+                      {[800, 1200, 2000].map((ms) => (
                         <button
                           key={ms}
                           className={`fd-chip ${cameraIntervalMs === ms ? "on" : ""}`}
@@ -1910,6 +1817,7 @@ export default function App() {
             )}
           </div>
 
+          {statusNote && <div className="fd-note">{statusNote}</div>}
           {errorMsg && <div className="fd-error">{errorMsg}</div>}
 
           {/* Confidence & Resolution Controls */}
@@ -1984,7 +1892,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">YOLO Inference</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "â€”"}
+                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "—"}
               </div>
               <div className="fd-tile-sub">{telemetry?.endpointUsed || "Waiting for frame"}</div>
             </Soft3DCard>
@@ -1996,7 +1904,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Total Roundtrip</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "â€”"}
+                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "—"}
               </div>
               <div className="fd-tile-sub">End-to-end latency</div>
             </Soft3DCard>
@@ -2008,7 +1916,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Avg Confidence</div>
               <div className="fd-tile-val">
-                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "â€”"}
+                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "—"}
               </div>
               <div className="fd-tile-sub">Current active frame</div>
             </Soft3DCard>
@@ -2039,7 +1947,7 @@ export default function App() {
               <div className="fd-det-list">
                 {visibleDetections.length === 0 ? (
                   <p style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "24px 0" }}>
-                    No detections above {confThreshold.toFixed(2)}. Upload a photo or click Try Sample Photo.
+                    No detections above {confThreshold.toFixed(2)}. Upload a photo or capture from Live Camera.
                   </p>
                 ) : (
                   visibleDetections.map((det) => (
@@ -2074,19 +1982,19 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Avg Latency</span>
-                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "â€”"}</strong>
+                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "—"}</strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Min / Max</span>
                     <strong>
                       {latencyStats.avg
                         ? `${latencyStats.min.toFixed(0)} / ${latencyStats.max.toFixed(0)}`
-                        : "â€”"}
+                        : "—"}
                     </strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Est. FPS</span>
-                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "â€”"}</strong>
+                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "—"}</strong>
                   </div>
                 </div>
                 <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -2138,7 +2046,7 @@ export default function App() {
                             {item.detections.length} face{item.detections.length === 1 ? "" : "s"} ({item.mode})
                           </div>
                           <div className="fd-det-coords">
-                            {item.timestamp} Â· {item.telemetry.inferenceMs.toFixed(1)} ms
+                            {item.timestamp} · {item.telemetry.inferenceMs.toFixed(1)} ms
                           </div>
                         </div>
                       </div>
@@ -2183,8 +2091,7 @@ export default function App() {
           <div className="fd-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: "0 0 6px", fontSize: 17 }}>Backend Connection Settings</h3>
             <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--muted)" }}>
-              Connect to your Render FastAPI proxy (`/api/v1/vision/analyze` or `/predict`), or toggle
-              Demo Sandbox for offline testing.
+              Connect to your Render FastAPI proxy (`/predict` or `/api/v1/vision/analyze`).
             </p>
 
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>
@@ -2192,28 +2099,10 @@ export default function App() {
               <input
                 type="url"
                 className="fd-input"
-                placeholder="https://your-service.onrender.com"
+                placeholder="https://face-object-detection-api.onrender.com"
                 value={apiBaseUrl}
                 onChange={(e) => setApiBaseUrl(e.target.value)}
               />
-            </label>
-
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginTop: 14,
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={demoMode}
-                onChange={(e) => setDemoMode(e.target.checked)}
-              />
-              Enable Demo Sandbox Mode (local offline preview)
             </label>
 
             {healthMessage && (
