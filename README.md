@@ -11,7 +11,8 @@ Train an object detection and recognition model on a custom dataset of my own im
 ## Tools
 - Python
 - Ultralytics (YOLO)
-- Ollama (Llama 3.2 1B)
+- Render
+- Vercel
 
 ## Folder Structure
 - raw_images/: original photos
