@@ -39,11 +39,15 @@ type OverlayStyle = "corners" | "box" | "spotlight";
 type InspectorTab = "detections" | "analytics" | "history" | "json";
 
 const ENV = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+const LIVE_RENDER_URL = "https://face-object-detection-api-gog5.onrender.com";
+
 const RAW_ENV_URL = (ENV.VITE_API_BASE_URL || ENV.VITE_API_URL || "").trim().replace(/\/+$/, "");
 const DEFAULT_API_URL =
-  RAW_ENV_URL && !RAW_ENV_URL.includes("api.example.com") && RAW_ENV_URL !== "https://face-object-detection-api-gog5.onrender.com"
+  RAW_ENV_URL &&
+  !RAW_ENV_URL.includes("api.example.com") &&
+  RAW_ENV_URL !== "https://face-object-detection-api.onrender.com"
     ? RAW_ENV_URL
-    : "https://face-object-detection-api-gog5.onrender.com";
+    : LIVE_RENDER_URL;
 
 const CLASS_COLORS_LIGHT = ["#0284C7", "#0D9488", "#0369A1", "#059669", "#0891B2"];
 const CLASS_COLORS_DARK = ["#67B7DC", "#5EC2B2", "#7CC4FA", "#6EE7B7", "#5EEAD4"];
@@ -307,12 +311,17 @@ export default function App() {
 
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => {
     const saved = (localStorage.getItem("yolo_api_base_url") || "").trim().replace(/\/+$/, "");
-    if (!saved || saved.includes("api.example.com") || saved === "https://face-object-detection-api-gog5.onrender.com") {
+    if (
+      !saved ||
+      saved.includes("api.example.com") ||
+      saved === "https://face-object-detection-api.onrender.com"
+    ) {
       localStorage.removeItem("yolo_api_base_url");
       return DEFAULT_API_URL;
     }
     return saved;
   });
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"ready" | "checking" | "offline">("checking");
   const [healthMessage, setHealthMessage] = useState("");
@@ -325,7 +334,7 @@ export default function App() {
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [showCoords, setShowCoords] = useState<boolean>(false);
 
-  // Media & detection state
+  // Media and detection state
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lastFile, setLastFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -351,7 +360,7 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const inFlightRef = useRef<boolean>(false);
 
-  // Clear any leftover demo flag and wake Render backend on startup
+  // Wake Render backend on startup
   useEffect(() => {
     localStorage.removeItem("fd_demo_mode");
     const clean = apiBaseUrl.replace(/\/+$/, "");
@@ -563,7 +572,9 @@ export default function App() {
       srcW: number,
       srcH: number,
       snapUrl: string,
-      runMode: "photo" | "camera"
+      runMode: "photo" | "camera",
+      sendW?: number,
+      sendH?: number
     ) => {
       if (inFlightRef.current) return;
       inFlightRef.current = true;
@@ -579,12 +590,19 @@ export default function App() {
         const cleanBase = (apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, "");
         if (!cleanBase) {
           setBackendStatus("offline");
+          setStatusNote("");
           setErrorMsg("No backend URL configured. Open Settings and enter your Render URL.");
           return;
         }
 
-        const q = `?conf=${encodeURIComponent(String(Math.min(confThreshold, 0.15)))}&imgsz=${encodeURIComponent(String(imgsz))}`;
-        const endpoints = [`${cleanBase}/api/v1/detect${q}`, `${cleanBase}/predict${q}`, `${cleanBase}/api/v1/vision/analyze`];
+        const reqConf = Math.min(confThreshold, 0.1);
+        const q = `?conf=${encodeURIComponent(String(reqConf))}&imgsz=${encodeURIComponent(String(imgsz))}`;
+        const endpoints = [
+          `${cleanBase}/api/v1/detect${q}`,
+          `${cleanBase}/predict${q}`,
+          `${cleanBase}/api/v1/vision/analyze`,
+        ];
+
         let responseJson: unknown = null;
         let usedEndpoint = "";
         let lastErr = "";
@@ -593,7 +611,7 @@ export default function App() {
           try {
             const fd = new FormData();
             fd.append("file", blob, filename);
-            fd.append("conf", String(Math.min(confThreshold, 0.15)));
+            fd.append("conf", String(reqConf));
             fd.append("imgsz", String(imgsz));
             if (ep.includes("/vision/analyze")) {
               fd.append("model_id", "yolo26-exp");
@@ -614,7 +632,7 @@ export default function App() {
             }
           } catch (err) {
             if (err instanceof DOMException && err.name === "AbortError") {
-              lastErr = "Request timed out after 35s (Render may be waking upÃ¢â‚¬â€click Snap Once again)";
+              lastErr = "Request timed out after 35s (Render may be waking up - try again)";
               break;
             }
             lastErr = err instanceof Error ? err.message : "Network error";
@@ -623,33 +641,58 @@ export default function App() {
 
         if (!responseJson) {
           setBackendStatus("offline");
+          setStatusNote("");
           setErrorMsg(`Inference failed (${lastErr}). Click Settings -> Ping /health to wake Render.`);
           return;
         }
 
         setBackendStatus("ready");
         const roundtripMs = Number((performance.now() - t0).toFixed(2));
-        const { detections, inferenceMs } = normalizeDetections(
-          responseJson,
-          srcW || 960,
-          srcH || 600
-        );
-        const mediaEl = runMode === "camera" ? videoRef.current : imgRef.current;
-        const withCrops = mediaEl ? cropFacesFromMedia(mediaEl, detections) : detections;
+        const inferW = sendW || srcW || 640;
+        const inferH = sendH || srcH || 480;
+        const { detections, inferenceMs } = normalizeDetections(responseJson, inferW, inferH);
 
-        setStatusNote(
-          detections.length === 0
-            ? "Frame analyzed: 0 faces detected above threshold."
-            : `Detected ${detections.length} face${detections.length === 1 ? "" : "s"}.`
-        );
+        let scaled = detections;
+        if (sendW && sendH && srcW && srcH && (sendW !== srcW || sendH !== srcH)) {
+          const sx = srcW / sendW;
+          const sy = srcH / sendH;
+          scaled = detections.map((d) => ({
+            ...d,
+            bbox: {
+              x1: Math.round(d.bbox.x1 * sx),
+              y1: Math.round(d.bbox.y1 * sy),
+              x2: Math.round(d.bbox.x2 * sx),
+              y2: Math.round(d.bbox.y2 * sy),
+            },
+          }));
+        }
+
+        const mediaEl = runMode === "camera" ? videoRef.current : imgRef.current;
+        const withCrops = mediaEl ? cropFacesFromMedia(mediaEl, scaled) : scaled;
+        const visibleCount = withCrops.filter((d) => d.confidence >= confThreshold).length;
+        const topConf = withCrops.reduce((m, d) => Math.max(m, d.confidence), 0);
+
+        if (withCrops.length === 0) {
+          setStatusNote(
+            `Analyzed (${Math.round(roundtripMs)} ms): 0 faces found. Center your full face in good light or try 0.15 Recall.`
+          );
+        } else if (visibleCount === 0) {
+          setStatusNote(
+            `Analyzed (${Math.round(roundtripMs)} ms): Found ${withCrops.length} face(s) below ${confThreshold.toFixed(2)} (top ${(topConf * 100).toFixed(1)}%). Lower Confidence to view.`
+          );
+        } else {
+          setStatusNote(
+            `Analyzed (${Math.round(roundtripMs)} ms): ${visibleCount} face${visibleCount === 1 ? "" : "s"} detected.`
+          );
+        }
 
         recordRun(
           withCrops,
           {
             inferenceMs: inferenceMs > 0 ? Number(inferenceMs.toFixed(2)) : roundtripMs,
             roundtripMs,
-            sourceWidth: srcW || 960,
-            sourceHeight: srcH || 600,
+            sourceWidth: srcW || 640,
+            sourceHeight: srcH || 480,
             timestamp: new Date().toLocaleTimeString(),
             endpointUsed: usedEndpoint,
           },
@@ -659,13 +702,13 @@ export default function App() {
       } finally {
         window.clearTimeout(timeoutId);
         setIsAnalyzing(false);
-        setStatusNote("");
         inFlightRef.current = false;
       }
     },
     [apiBaseUrl, confThreshold, imgsz, recordRun]
   );
 
+  // Normalize uploaded photos to an upright 1280px image so every photo fits cleanly and boxes align
   const handleFileSelected = useCallback(
     (file: File) => {
       if (!file.type.startsWith("image/")) {
@@ -673,30 +716,56 @@ export default function App() {
         return;
       }
       setMode("photo");
-      setLastFile(file);
       setAllDetections([]);
       setTelemetry(null);
       setHoveredId(null);
       setErrorMsg("");
+      setStatusNote("Preparing image...");
 
       const reader = new FileReader();
       reader.onload = () => {
-        const dataUrl = String(reader.result || "");
-        setImageUrl(dataUrl);
+        const rawUrl = String(reader.result || "");
         const img = new Image();
         img.onload = () => {
-          setTimeout(() => {
-            void runInferenceOnBlob(
-              file,
-              file.name,
-              img.naturalWidth,
-              img.naturalHeight,
-              dataUrl,
-              "photo"
-            );
-          }, 60);
+          const maxDim = 1280;
+          const natW = img.naturalWidth || 640;
+          const natH = img.naturalHeight || 480;
+          const ratio = Math.min(1, maxDim / Math.max(natW, natH));
+          const outW = Math.max(1, Math.round(natW * ratio));
+          const outH = Math.max(1, Math.round(natH * ratio));
+
+          const c = document.createElement("canvas");
+          c.width = outW;
+          c.height = outH;
+          const ctx = c.getContext("2d");
+
+          if (!ctx) {
+            setLastFile(file);
+            setImageUrl(rawUrl);
+            window.setTimeout(() => {
+              void runInferenceOnBlob(file, file.name, natW, natH, rawUrl, "photo");
+            }, 60);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, outW, outH);
+          const cleanUrl = c.toDataURL("image/jpeg", 0.9);
+          setImageUrl(cleanUrl);
+
+          c.toBlob(
+            (blob) => {
+              const safeName = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+              const cleanFile = blob ? new File([blob], safeName, { type: "image/jpeg" }) : file;
+              setLastFile(cleanFile);
+              window.setTimeout(() => {
+                void runInferenceOnBlob(cleanFile, cleanFile.name, outW, outH, cleanUrl, "photo");
+              }, 60);
+            },
+            "image/jpeg",
+            0.9
+          );
         };
-        img.src = dataUrl;
+        img.src = rawUrl;
       };
       reader.readAsDataURL(file);
     },
@@ -754,7 +823,12 @@ export default function App() {
       setErrorMsg("");
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: requestedFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: requestedFacing,
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 24, max: 30 },
+          },
           audio: false,
         });
         streamRef.current = stream;
@@ -778,7 +852,6 @@ export default function App() {
     }
     if (inFlightRef.current) return;
 
-    // Wait briefly if metadata/first frame hasn't settled yet
     if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
       setStatusNote("Waiting for camera frame...");
       await new Promise<void>((resolve) => {
@@ -798,37 +871,52 @@ export default function App() {
     const h = video.videoHeight || video.clientHeight;
     if (!w || !h) {
       setStatusNote("");
-      setErrorMsg("Camera frame not ready yetÃ¢â‚¬â€wait 1 second and click Snap Once again.");
+      setErrorMsg("Camera frame not ready yet - wait 1 second and click Snap Once again.");
       return;
     }
 
+    const maxDim = 640;
+    const ratio = Math.min(1, maxDim / Math.max(w, h));
+    const sendW = Math.max(1, Math.round(w * ratio));
+    const sendH = Math.max(1, Math.round(h * ratio));
+
     const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
+    c.width = sendW;
+    c.height = sendH;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, w, h);
-    const snapUrl = c.toDataURL("image/jpeg", 0.88);
+    ctx.drawImage(video, 0, 0, sendW, sendH);
+    const snapUrl = c.toDataURL("image/jpeg", 0.65);
 
     const blob: Blob | null = await new Promise((resolve) =>
-      c.toBlob((b) => resolve(b), "image/jpeg", 0.88)
+      c.toBlob((b) => resolve(b), "image/jpeg", 0.72)
     );
 
     if (blob) {
-      void runInferenceOnBlob(blob, "webcam_frame.jpg", w, h, snapUrl, "camera");
+      await runInferenceOnBlob(blob, "webcam_frame.jpg", w, h, snapUrl, "camera", sendW, sendH);
     } else {
       const res = await fetch(snapUrl);
       const fallbackBlob = await res.blob();
-      void runInferenceOnBlob(fallbackBlob, "webcam_frame.jpg", w, h, snapUrl, "camera");
+      await runInferenceOnBlob(fallbackBlob, "webcam_frame.jpg", w, h, snapUrl, "camera", sendW, sendH);
     }
   }, [cameraActive, runInferenceOnBlob]);
 
   useEffect(() => {
     if (!autoDetect || !cameraActive || mode !== "camera") return;
-    const id = window.setInterval(() => {
-      void captureCameraFrame();
-    }, cameraIntervalMs);
-    return () => window.clearInterval(id);
+    let cancelled = false;
+    let timer: number | undefined;
+    const loop = async () => {
+      if (cancelled) return;
+      await captureCameraFrame();
+      if (!cancelled) {
+        timer = window.setTimeout(() => void loop(), cameraIntervalMs);
+      }
+    };
+    void loop();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [autoDetect, cameraActive, mode, cameraIntervalMs, captureCameraFrame]);
 
   useEffect(() => {
@@ -1233,19 +1321,25 @@ export default function App() {
           border-color: var(--accent);
         }
 
+        /* Locked detection stage so portrait and landscape images always fit completely */
         .fd-stage {
           position: relative;
           width: 100%;
           aspect-ratio: 16 / 10;
+          min-height: 360px;
+          max-height: 68vh;
           border-radius: 16px;
           overflow: hidden;
           background: var(--stage-bg);
           border: 1.5px dashed var(--border);
-          display: grid;
-          place-items: center;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         .fd-stage.has-media { border-style: solid; }
         .fd-media {
+          position: absolute;
+          inset: 0;
           width: 100%;
           height: 100%;
           object-fit: contain;
@@ -1254,12 +1348,16 @@ export default function App() {
         .fd-canvas {
           position: absolute;
           inset: 0;
+          width: 100%;
+          height: 100%;
           pointer-events: none;
         }
+
         .fd-empty {
           text-align: center;
           padding: 28px;
           max-width: 390px;
+          z-index: 1;
         }
         .fd-empty-icon {
           width: 56px;
@@ -1602,7 +1700,7 @@ export default function App() {
 
       {/* Main Workspace */}
       <main className="fd-main">
-        {/* Left: Unobstructed Detection Stage */}
+        {/* Left: Detection Stage */}
         <Soft3DCard enabled={motion3D} className="fd-panel">
           <div className="fd-mode-row">
             <div className="fd-seg">
@@ -1613,6 +1711,8 @@ export default function App() {
                   setAllDetections([]);
                   setTelemetry(null);
                   setHoveredId(null);
+                  setStatusNote("");
+                  setErrorMsg("");
                 }}
               >
                 <IconUpload /> Photo / Upload
@@ -1624,6 +1724,8 @@ export default function App() {
                   setAllDetections([]);
                   setTelemetry(null);
                   setHoveredId(null);
+                  setStatusNote("");
+                  setErrorMsg("");
                 }}
               >
                 <IconCamera /> Live Camera
@@ -1764,6 +1866,8 @@ export default function App() {
                       setAllDetections([]);
                       setLastFile(null);
                       setTelemetry(null);
+                      setStatusNote("");
+                      setErrorMsg("");
                     }}
                   >
                     Clear
@@ -1824,7 +1928,7 @@ export default function App() {
           {statusNote && <div className="fd-note">{statusNote}</div>}
           {errorMsg && <div className="fd-error">{errorMsg}</div>}
 
-          {/* Confidence & Resolution Controls */}
+          {/* Confidence and Resolution Controls */}
           <div className="fd-controls">
             <div>
               <div className="fd-label-row">
@@ -1896,7 +2000,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">YOLO Inference</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "Ã¢â‚¬â€"}
+                {telemetry ? `${telemetry.inferenceMs.toFixed(1)} ms` : "N/A"}
               </div>
               <div className="fd-tile-sub">{telemetry?.endpointUsed || "Waiting for frame"}</div>
             </Soft3DCard>
@@ -1908,7 +2012,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Total Roundtrip</div>
               <div className="fd-tile-val">
-                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "Ã¢â‚¬â€"}
+                {telemetry ? `${telemetry.roundtripMs.toFixed(0)} ms` : "N/A"}
               </div>
               <div className="fd-tile-sub">End-to-end latency</div>
             </Soft3DCard>
@@ -1920,7 +2024,7 @@ export default function App() {
               </div>
               <div className="fd-tile-label">Avg Confidence</div>
               <div className="fd-tile-val">
-                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "Ã¢â‚¬â€"}
+                {visibleDetections.length ? `${avgConfidence.toFixed(1)}%` : "N/A"}
               </div>
               <div className="fd-tile-sub">Current active frame</div>
             </Soft3DCard>
@@ -1986,19 +2090,19 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Avg Latency</span>
-                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "Ã¢â‚¬â€"}</strong>
+                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "N/A"}</strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Min / Max</span>
                     <strong>
                       {latencyStats.avg
                         ? `${latencyStats.min.toFixed(0)} / ${latencyStats.max.toFixed(0)}`
-                        : "Ã¢â‚¬â€"}
+                        : "N/A"}
                     </strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Est. FPS</span>
-                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "Ã¢â‚¬â€"}</strong>
+                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "N/A"}</strong>
                   </div>
                 </div>
                 <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -2050,7 +2154,7 @@ export default function App() {
                             {item.detections.length} face{item.detections.length === 1 ? "" : "s"} ({item.mode})
                           </div>
                           <div className="fd-det-coords">
-                            {item.timestamp} Ã‚Â· {item.telemetry.inferenceMs.toFixed(1)} ms
+                            {item.timestamp} | {item.telemetry.inferenceMs.toFixed(1)} ms
                           </div>
                         </div>
                       </div>
@@ -2095,7 +2199,7 @@ export default function App() {
           <div className="fd-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: "0 0 6px", fontSize: 17 }}>Backend Connection Settings</h3>
             <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--muted)" }}>
-              Connect to your Render FastAPI proxy (`/predict` or `/api/v1/vision/analyze`).
+              Connect to your Render FastAPI proxy (/api/v1/detect).
             </p>
 
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>
