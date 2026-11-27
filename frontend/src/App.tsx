@@ -33,6 +33,12 @@ interface HistoryEntry {
   telemetry: Telemetry;
 }
 
+type PWAInstallElement = HTMLElement & {
+  showDialog?: (forced?: boolean) => void;
+  hideDialog?: () => void;
+  styles?: Record<string, string>;
+};
+
 type ThemeMode = "light" | "dark";
 type ViewMode = "photo" | "camera";
 type OverlayStyle = "corners" | "box" | "spotlight";
@@ -190,6 +196,7 @@ function Soft3DCard({ children, className = "", enabled }: Soft3DCardProps) {
 
   const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!enabled) return;
+    if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const px = (e.clientX - rect.left) / rect.width - 0.5;
     const py = (e.clientY - rect.top) / rect.height - 0.5;
@@ -326,6 +333,17 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState<"ready" | "checking" | "offline">("checking");
   const [healthMessage, setHealthMessage] = useState("");
 
+  // Cross-platform PWA install component state
+  const pwaHostRef = useRef<HTMLDivElement | null>(null);
+  const pwaElRef = useRef<PWAInstallElement | null>(null);
+  const [isStandalone, setIsStandalone] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return (
+      window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((window.navigator as unknown as { standalone?: boolean }).standalone)
+    );
+  });
+
   // Inference controls
   const [confThreshold, setConfThreshold] = useState<number>(0.25);
   const [imgsz, setImgsz] = useState<number>(640);
@@ -359,6 +377,41 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const inFlightRef = useRef<boolean>(false);
+
+  // Mount @khmyznikov/pwa-install web component cleanly for Android, iOS, and Desktop
+  useEffect(() => {
+    const host = pwaHostRef.current;
+    if (!host) return;
+    const el = document.createElement("pwa-install") as PWAInstallElement;
+    el.setAttribute("manifest-url", "/manifest.webmanifest");
+    el.setAttribute("name", "FaceDetect Studio");
+    el.setAttribute("description", "Real-time YOLO26 face detection app for Android, iPhone, and Desktop.");
+    el.setAttribute("icon", "/icon-192.png");
+    el.setAttribute("manual-apple", "true");
+    el.setAttribute("manual-chrome", "true");
+    el.styles = { "--tint-color": "#0284C7" };
+    host.innerHTML = "";
+    host.appendChild(el);
+    pwaElRef.current = el;
+
+    const onInstalled = () => setIsStandalone(true);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("appinstalled", onInstalled);
+      host.innerHTML = "";
+      pwaElRef.current = null;
+    };
+  }, []);
+
+  const handleDownloadApp = useCallback(() => {
+    if (pwaElRef.current && typeof pwaElRef.current.showDialog === "function") {
+      pwaElRef.current.showDialog(true);
+    } else {
+      setStatusNote(
+        "To install: tap Chrome/Edge menu -> Install App (Android/PC) or Safari Share -> Add to Home Screen (iPhone)."
+      );
+    }
+  }, []);
 
   // Wake Render backend on startup
   useEffect(() => {
@@ -522,9 +575,13 @@ export default function App() {
         const ly = y - th - 4 >= offsetY ? y - th - 4 : y + 4;
 
         ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.roundRect(x, ly, tw, th, 6);
-        ctx.fill();
+        if (typeof ctx.roundRect === "function") {
+          ctx.beginPath();
+          ctx.roundRect(x, ly, tw, th, 6);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x, ly, tw, th);
+        }
 
         ctx.fillStyle = theme === "dark" ? "#0B1217" : "#FFFFFF";
         ctx.fillText(text, x + 7, ly + 15);
@@ -535,7 +592,11 @@ export default function App() {
   useEffect(() => {
     renderOverlay();
     window.addEventListener("resize", renderOverlay);
-    return () => window.removeEventListener("resize", renderOverlay);
+    window.addEventListener("orientationchange", renderOverlay);
+    return () => {
+      window.removeEventListener("resize", renderOverlay);
+      window.removeEventListener("orientationchange", renderOverlay);
+    };
   }, [renderOverlay, imageUrl, cameraActive]);
 
   const recordRun = useCallback(
@@ -838,7 +899,7 @@ export default function App() {
           await videoRef.current.play();
         }
       } catch {
-        setErrorMsg("Camera access was denied or no webcam was found on this device.");
+        setErrorMsg("Camera access was denied or no camera was found on this device.");
       }
     },
     [facingMode, stopCamera]
@@ -1071,35 +1132,43 @@ export default function App() {
   return (
     <div className={`fd-root fd-${theme}`}>
       <style>{`
+        *, *::before, *::after {
+          box-sizing: border-box;
+        }
         html, body, #root {
           margin: 0;
           padding: 0;
           width: 100%;
-          max-width: none;
+          max-width: 100%;
           min-height: 100vh;
+          overflow-x: hidden;
+          overflow-x: clip;
           display: block;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
           -webkit-font-smoothing: antialiased;
+          -webkit-text-size-adjust: 100%;
         }
-        * { box-sizing: border-box; }
 
         .fd-root {
           min-height: 100vh;
+          min-height: 100dvh;
           width: 100%;
+          max-width: 100%;
+          overflow-x: clip;
           transition: background 420ms ease, color 320ms ease;
-          padding-bottom: 36px;
+          padding-bottom: max(32px, env(safe-area-inset-bottom));
         }
         .fd-light {
           --bg: linear-gradient(155deg, #F3FAFC 0%, #F2FAF7 52%, #EDF6F9 100%);
-          --glass: rgba(255, 255, 255, 0.78);
-          --glass-strong: rgba(255, 255, 255, 0.90);
+          --glass: rgba(255, 255, 255, 0.82);
+          --glass-strong: rgba(255, 255, 255, 0.94);
           --border: rgba(14, 116, 144, 0.14);
           --border-top: rgba(255, 255, 255, 0.95);
           --text: #0F2530;
           --muted: #54717D;
           --accent: #0284C7;
           --accent-2: #0D9488;
-          --pill-bg: rgba(226, 244, 248, 0.78);
+          --pill-bg: rgba(226, 244, 248, 0.85);
           --tile-1: linear-gradient(135deg, #0284C7 0%, #0EA5E9 100%);
           --tile-2: linear-gradient(135deg, #0369A1 0%, #0D9488 100%);
           --tile-3: linear-gradient(135deg, #0891B2 0%, #10B981 100%);
@@ -1112,15 +1181,15 @@ export default function App() {
         }
         .fd-dark {
           --bg: linear-gradient(155deg, #10171D 0%, #121D21 55%, #0E161A 100%);
-          --glass: rgba(22, 33, 40, 0.76);
-          --glass-strong: rgba(27, 40, 48, 0.92);
+          --glass: rgba(22, 33, 40, 0.84);
+          --glass-strong: rgba(27, 40, 48, 0.95);
           --border: rgba(148, 197, 204, 0.14);
           --border-top: rgba(186, 230, 235, 0.16);
           --text: #E2EEF2;
           --muted: #8FA9B4;
           --accent: #56B4D3;
           --accent-2: #52B7A0;
-          --pill-bg: rgba(31, 47, 56, 0.78);
+          --pill-bg: rgba(31, 47, 56, 0.85);
           --tile-1: linear-gradient(135deg, #1A4B66 0%, #24647A 100%);
           --tile-2: linear-gradient(135deg, #1A4E5D 0%, #236B67 100%);
           --tile-3: linear-gradient(135deg, #1B5461 0%, #266E60 100%);
@@ -1133,6 +1202,8 @@ export default function App() {
         }
 
         .soft-3d-card {
+          min-width: 0;
+          max-width: 100%;
           transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 420ms ease, border-color 300ms ease;
           will-change: transform;
         }
@@ -1141,6 +1212,8 @@ export default function App() {
           position: sticky;
           top: 0;
           z-index: 30;
+          width: 100%;
+          padding-top: env(safe-area-inset-top);
           backdrop-filter: blur(18px);
           -webkit-backdrop-filter: blur(18px);
           background: var(--glass);
@@ -1148,12 +1221,13 @@ export default function App() {
         }
         .fd-nav-inner {
           max-width: 1320px;
+          width: 100%;
           margin: 0 auto;
-          padding: 12px 20px;
+          padding: 10px 18px;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
           flex-wrap: wrap;
         }
         .fd-brand {
@@ -1161,13 +1235,15 @@ export default function App() {
           align-items: center;
           gap: 10px;
           font-weight: 700;
-          font-size: 16px;
+          font-size: 15.5px;
           letter-spacing: -0.01em;
+          min-width: 0;
         }
         .fd-brand-icon {
-          width: 36px;
-          height: 36px;
-          border-radius: 11px;
+          width: 34px;
+          height: 34px;
+          flex-shrink: 0;
+          border-radius: 10px;
           display: grid;
           place-items: center;
           color: #FFFFFF;
@@ -1183,19 +1259,21 @@ export default function App() {
         .fd-status-pill {
           display: inline-flex;
           align-items: center;
-          gap: 8px;
-          padding: 7px 14px;
+          gap: 7px;
+          padding: 6px 12px;
           border-radius: 999px;
-          font-size: 12.5px;
+          font-size: 12px;
           font-weight: 600;
           background: var(--pill-bg);
           border: 1px solid var(--border);
           color: var(--text);
+          white-space: nowrap;
         }
         .fd-dot {
           width: 8px;
           height: 8px;
           border-radius: 999px;
+          flex-shrink: 0;
           background: #10B981;
         }
         .fd-dot.checking { background: #0EA5E9; }
@@ -1204,11 +1282,12 @@ export default function App() {
         .fd-nav-actions {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 7px;
+          flex-wrap: wrap;
         }
         .fd-icon-btn {
-          height: 36px;
-          padding: 0 12px;
+          height: 34px;
+          padding: 0 11px;
           border-radius: 10px;
           border: 1px solid var(--border);
           background: var(--glass-strong);
@@ -1216,27 +1295,46 @@ export default function App() {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          font-size: 12.5px;
+          font-size: 12px;
           font-weight: 600;
           cursor: pointer;
+          white-space: nowrap;
           transition: background 200ms ease, border-color 200ms ease;
         }
         .fd-icon-btn:hover { border-color: var(--accent); }
+        .fd-install-btn {
+          height: 34px;
+          padding: 0 12px;
+          border-radius: 10px;
+          border: none;
+          background: linear-gradient(135deg, var(--accent), var(--accent-2));
+          color: #FFFFFF;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          white-space: nowrap;
+          box-shadow: 0 3px 10px rgba(2, 132, 199, 0.24);
+        }
+        .fd-install-btn:hover { opacity: 0.92; }
 
         .fd-main {
           max-width: 1320px;
-          margin: 22px auto 0;
-          padding: 0 20px;
+          width: 100%;
+          margin: 18px auto 0;
+          padding: 0 18px;
           display: grid;
-          grid-template-columns: minmax(0, 1.48fr) minmax(320px, 1fr);
-          gap: 20px;
+          grid-template-columns: minmax(0, 1.48fr) minmax(0, 1fr);
+          gap: 18px;
           align-items: start;
-        }
-        @media (max-width: 980px) {
-          .fd-main { grid-template-columns: 1fr; }
         }
 
         .fd-panel {
+          min-width: 0;
+          width: 100%;
+          max-width: 100%;
           background: var(--glass);
           backdrop-filter: blur(18px);
           -webkit-backdrop-filter: blur(18px);
@@ -1244,15 +1342,15 @@ export default function App() {
           border-top: 1px solid var(--border-top);
           border-radius: 20px;
           box-shadow: var(--shadow);
-          padding: 18px;
+          padding: 16px;
         }
 
         .fd-mode-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 12px;
-          margin-bottom: 14px;
+          gap: 10px;
+          margin-bottom: 12px;
           flex-wrap: wrap;
         }
         .fd-seg {
@@ -1262,19 +1360,22 @@ export default function App() {
           background: var(--pill-bg);
           border: 1px solid var(--border);
           gap: 4px;
+          max-width: 100%;
         }
         .fd-seg-btn {
           border: none;
           background: transparent;
           color: var(--muted);
-          padding: 7px 14px;
+          padding: 7px 13px;
           border-radius: 9px;
           font-size: 13px;
           font-weight: 600;
           cursor: pointer;
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 6px;
+          white-space: nowrap;
           transition: all 240ms ease;
         }
         .fd-seg-btn.active {
@@ -1284,6 +1385,8 @@ export default function App() {
         }
 
         .fd-hud {
+          width: 100%;
+          max-width: 100%;
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -1300,9 +1403,10 @@ export default function App() {
           align-items: center;
           gap: 6px;
           flex-wrap: wrap;
+          max-width: 100%;
         }
         .fd-chip {
-          padding: 5px 10px;
+          padding: 5px 9px;
           border-radius: 8px;
           border: 1px solid var(--border);
           background: transparent;
@@ -1321,13 +1425,13 @@ export default function App() {
           border-color: var(--accent);
         }
 
-        /* Locked detection stage so portrait and landscape images always fit completely */
+        /* Responsive viewport stage - never forces horizontal overflow on small screens */
         .fd-stage {
           position: relative;
           width: 100%;
-          aspect-ratio: 16 / 10;
-          min-height: 360px;
-          max-height: 68vh;
+          max-width: 100%;
+          height: 380px;
+          height: clamp(270px, 50vw, 480px);
           border-radius: 16px;
           overflow: hidden;
           background: var(--stage-bg);
@@ -1339,7 +1443,10 @@ export default function App() {
         .fd-stage.has-media { border-style: solid; }
         .fd-media {
           position: absolute;
-          inset: 0;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          left: 0;
           width: 100%;
           height: 100%;
           object-fit: contain;
@@ -1347,23 +1454,27 @@ export default function App() {
         }
         .fd-canvas {
           position: absolute;
-          inset: 0;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          left: 0;
           width: 100%;
           height: 100%;
           pointer-events: none;
         }
 
         .fd-empty {
+          width: 100%;
+          max-width: 360px;
           text-align: center;
-          padding: 28px;
-          max-width: 390px;
+          padding: 20px 16px;
           z-index: 1;
         }
         .fd-empty-icon {
-          width: 56px;
-          height: 56px;
-          margin: 0 auto 14px;
-          border-radius: 16px;
+          width: 50px;
+          height: 50px;
+          margin: 0 auto 12px;
+          border-radius: 14px;
           display: grid;
           place-items: center;
           color: #FFFFFF;
@@ -1371,26 +1482,26 @@ export default function App() {
         }
         .fd-empty h3 {
           margin: 0 0 6px;
-          font-size: 16px;
+          font-size: 15.5px;
           font-weight: 700;
         }
         .fd-empty p {
-          margin: 0 0 16px;
-          font-size: 13px;
-          line-height: 1.5;
+          margin: 0 0 14px;
+          font-size: 12.5px;
+          line-height: 1.48;
           color: var(--muted);
         }
 
         .fd-actions {
-          margin-top: 14px;
+          margin-top: 12px;
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
         }
         .fd-btn-primary {
-          padding: 10px 16px;
-          border-radius: 12px;
+          padding: 9px 14px;
+          border-radius: 11px;
           border: none;
           background: linear-gradient(135deg, var(--accent), var(--accent-2));
           color: #FFFFFF;
@@ -1399,6 +1510,7 @@ export default function App() {
           cursor: pointer;
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 7px;
           box-shadow: 0 4px 12px rgba(2, 132, 199, 0.22);
           transition: opacity 180ms ease;
@@ -1406,8 +1518,8 @@ export default function App() {
         .fd-btn-primary:hover { opacity: 0.93; }
         .fd-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
         .fd-btn-secondary {
-          padding: 10px 14px;
-          border-radius: 12px;
+          padding: 9px 13px;
+          border-radius: 11px;
           border: 1px solid var(--border);
           background: var(--glass-strong);
           color: var(--text);
@@ -1416,6 +1528,7 @@ export default function App() {
           cursor: pointer;
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 7px;
         }
         .fd-btn-secondary:hover { border-color: var(--accent); }
@@ -1426,17 +1539,16 @@ export default function App() {
           padding-top: 14px;
           border-top: 1px solid var(--border);
           display: grid;
-          grid-template-columns: 1.4fr 1fr;
-          gap: 16px;
+          grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+          gap: 14px;
           align-items: center;
-        }
-        @media (max-width: 640px) {
-          .fd-controls { grid-template-columns: 1fr; }
         }
         .fd-label-row {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          flex-wrap: wrap;
+          gap: 6px;
           font-size: 12.5px;
           font-weight: 600;
           margin-bottom: 6px;
@@ -1448,18 +1560,23 @@ export default function App() {
         }
 
         .fd-right {
+          min-width: 0;
+          width: 100%;
+          max-width: 100%;
           display: flex;
           flex-direction: column;
-          gap: 18px;
+          gap: 16px;
         }
         .fd-metrics-grid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          width: 100%;
         }
         .fd-tile {
-          border-radius: 18px;
-          padding: 15px 16px;
+          min-width: 0;
+          border-radius: 16px;
+          padding: 13px 14px;
           color: #FFFFFF;
           box-shadow: var(--shadow);
           position: relative;
@@ -1473,52 +1590,60 @@ export default function App() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 12px;
+          margin-bottom: 10px;
         }
         .fd-tile-icon {
-          width: 32px;
-          height: 32px;
-          border-radius: 10px;
+          width: 30px;
+          height: 30px;
+          border-radius: 9px;
           background: rgba(255, 255, 255, 0.18);
           display: grid;
           place-items: center;
         }
         .fd-tile-label {
-          font-size: 12px;
-          opacity: 0.88;
+          font-size: 11.5px;
+          opacity: 0.9;
           font-weight: 500;
         }
         .fd-tile-val {
-          font-size: 22px;
+          font-size: 20px;
+          font-size: clamp(18px, 4.2vw, 22px);
           font-weight: 700;
           letter-spacing: -0.02em;
           margin: 2px 0;
           font-variant-numeric: tabular-nums;
+          overflow-wrap: anywhere;
         }
         .fd-tile-sub {
           font-size: 11px;
-          opacity: 0.8;
+          opacity: 0.82;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .fd-tabs {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 4px;
           padding: 4px;
           border-radius: 12px;
           background: var(--pill-bg);
           border: 1px solid var(--border);
-          margin-bottom: 14px;
+          margin-bottom: 12px;
         }
         .fd-tab {
           border: none;
           background: transparent;
           color: var(--muted);
-          padding: 7px 6px;
+          padding: 7px 4px;
           border-radius: 9px;
           font-size: 12px;
           font-weight: 600;
           cursor: pointer;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .fd-tab.active {
           background: var(--glass-strong);
@@ -1526,33 +1651,44 @@ export default function App() {
           box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
         }
 
+        .fd-stats-3 {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
         .fd-det-list {
           display: flex;
           flex-direction: column;
-          gap: 10px;
-          max-height: 340px;
+          gap: 9px;
+          max-height: 320px;
           overflow-y: auto;
         }
         .fd-det-row {
+          min-width: 0;
+          max-width: 100%;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 12px;
-          padding: 10px 12px;
-          border-radius: 14px;
+          gap: 10px;
+          padding: 9px 11px;
+          border-radius: 13px;
           background: var(--row-bg);
           border: 1px solid var(--border);
           cursor: pointer;
         }
         .fd-det-row.hovered { border-color: var(--accent); }
         .fd-det-left {
+          min-width: 0;
           display: flex;
           align-items: center;
-          gap: 11px;
+          gap: 10px;
         }
         .fd-avatar {
-          width: 40px;
-          height: 40px;
+          width: 38px;
+          height: 38px;
+          flex-shrink: 0;
           border-radius: 999px;
           object-fit: cover;
           border: 2px solid var(--accent);
@@ -1560,74 +1696,94 @@ export default function App() {
           display: grid;
           place-items: center;
           font-weight: 700;
-          font-size: 13px;
+          font-size: 12px;
         }
         .fd-det-name {
-          font-size: 13.5px;
+          font-size: 13px;
           font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .fd-det-coords {
           font-size: 11px;
           color: var(--muted);
           font-variant-numeric: tabular-nums;
+          word-break: break-word;
         }
         .fd-det-score {
           font-size: 13px;
           font-weight: 700;
           color: var(--accent);
           font-variant-numeric: tabular-nums;
+          flex-shrink: 0;
         }
 
         .fd-pre {
           margin: 0;
-          padding: 12px;
+          padding: 11px;
+          width: 100%;
+          max-width: 100%;
           border-radius: 12px;
           background: var(--stage-bg);
           border: 1px solid var(--border);
           font-size: 11.5px;
-          line-height: 1.5;
-          max-height: 280px;
+          line-height: 1.48;
+          max-height: 260px;
           overflow: auto;
+          white-space: pre-wrap;
+          word-break: break-word;
           font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
 
         .fd-note {
           margin-top: 10px;
-          padding: 8px 12px;
+          padding: 8px 11px;
           border-radius: 10px;
-          font-size: 12.5px;
+          font-size: 12px;
+          line-height: 1.45;
           background: var(--pill-bg);
           border: 1px solid var(--border);
           color: var(--text);
+          word-break: break-word;
         }
 
         .fd-error {
           margin-top: 10px;
-          padding: 10px 12px;
+          padding: 9px 11px;
           border-radius: 10px;
-          font-size: 12.5px;
+          font-size: 12px;
+          line-height: 1.45;
           background: rgba(245, 158, 11, 0.14);
           border: 1px solid rgba(245, 158, 11, 0.35);
           color: var(--text);
+          word-break: break-word;
         }
 
         .fd-modal-bg {
           position: fixed;
-          inset: 0;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          left: 0;
           z-index: 60;
           background: rgba(7, 15, 22, 0.48);
           backdrop-filter: blur(8px);
-          display: grid;
-          place-items: center;
-          padding: 20px;
+          -webkit-backdrop-filter: blur(8px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
         }
         .fd-modal {
           width: 100%;
           max-width: 460px;
+          max-height: 90vh;
+          overflow-y: auto;
           background: var(--glass-strong);
           border: 1px solid var(--border);
-          border-radius: 20px;
-          padding: 22px;
+          border-radius: 18px;
+          padding: 20px;
           box-shadow: 0 22px 48px rgba(0, 0, 0, 0.25);
         }
         .fd-input {
@@ -1637,8 +1793,103 @@ export default function App() {
           border: 1px solid var(--border);
           background: var(--stage-bg);
           color: var(--text);
-          font-size: 13px;
+          font-size: 16px;
           margin-top: 6px;
+        }
+
+        /* Tablet & small laptop */
+        @media (max-width: 1024px) {
+          .fd-main {
+            grid-template-columns: minmax(0, 1fr);
+            max-width: 780px;
+          }
+        }
+
+        /* Medium screens & large phones */
+        @media (max-width: 720px) {
+          .fd-controls {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 12px;
+          }
+        }
+
+        /* Standard & compact smartphones (360px Redmi 5A, iPhone SE, etc.) */
+        @media (max-width: 560px) {
+          .fd-nav-inner {
+            padding: 10px 12px;
+            gap: 8px;
+          }
+          .fd-nav-actions {
+            width: 100%;
+            justify-content: flex-start;
+          }
+          .fd-hide-mobile {
+            display: none !important;
+          }
+          .fd-main {
+            padding: 0 10px;
+            margin-top: 12px;
+            gap: 14px;
+          }
+          .fd-panel {
+            padding: 12px;
+            border-radius: 16px;
+          }
+          .fd-seg {
+            width: 100%;
+          }
+          .fd-seg-btn {
+            flex: 1;
+            padding: 8px 8px;
+            font-size: 12.5px;
+          }
+          .fd-hud {
+            padding: 7px 8px;
+            gap: 6px;
+          }
+          .fd-chip {
+            padding: 5px 8px;
+            font-size: 11.5px;
+          }
+          .fd-stage {
+            height: 280px;
+            height: clamp(235px, 68vw, 340px);
+            border-radius: 13px;
+          }
+          .fd-empty {
+            padding: 14px 10px;
+          }
+          .fd-empty-icon {
+            width: 44px;
+            height: 44px;
+            margin-bottom: 10px;
+          }
+          .fd-empty h3 { font-size: 15px; }
+          .fd-empty p { font-size: 12px; margin-bottom: 12px; }
+          .fd-btn-primary, .fd-btn-secondary {
+            font-size: 12.5px;
+            padding: 9px 12px;
+          }
+          .fd-tile {
+            padding: 11px 12px;
+            border-radius: 14px;
+          }
+          .fd-stats-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+          }
+        }
+
+        /* Very narrow screens (< 430px) */
+        @media (max-width: 430px) {
+          .fd-tabs {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 340px) {
+          .fd-metrics-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
         }
       `}</style>
 
@@ -1671,8 +1922,18 @@ export default function App() {
           </div>
 
           <div className="fd-nav-actions">
+            {!isStandalone && (
+              <button
+                className="fd-install-btn"
+                onClick={handleDownloadApp}
+                title="Download / Install FaceDetect Studio on Android, iPhone, or Desktop"
+              >
+                <IconDownload />
+                Download App
+              </button>
+            )}
             <button
-              className="fd-icon-btn"
+              className="fd-icon-btn fd-hide-mobile"
               onClick={() => setMotion3D((v) => !v)}
               title="Toggle subtle 3D card tilt"
             >
@@ -1820,7 +2081,7 @@ export default function App() {
                       <IconCamera />
                     </div>
                     <h3>Live Camera Detection</h3>
-                    <p>Start your webcam to run continuous or single-frame YOLO26 detection.</p>
+                    <p>Start your camera to run continuous or single-frame YOLO26 detection.</p>
                     <button className="fd-btn-primary" onClick={() => void startCamera()}>
                       <IconCamera /> Start Camera
                     </button>
@@ -2054,7 +2315,7 @@ export default function App() {
             {inspectorTab === "detections" && (
               <div className="fd-det-list">
                 {visibleDetections.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "24px 0" }}>
+                  <p style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
                     No detections above {confThreshold.toFixed(2)}. Upload a photo or capture from Live Camera.
                   </p>
                 ) : (
@@ -2071,7 +2332,7 @@ export default function App() {
                         ) : (
                           <div className="fd-avatar">{det.label.slice(0, 2).toUpperCase()}</div>
                         )}
-                        <div>
+                        <div style={{ minWidth: 0 }}>
                           <div className="fd-det-name">{det.label}</div>
                           <div className="fd-det-coords">
                             [{det.bbox.x1}, {det.bbox.y1}, {det.bbox.x2}, {det.bbox.y2}]
@@ -2087,14 +2348,14 @@ export default function App() {
 
             {inspectorTab === "analytics" && (
               <div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+                <div className="fd-stats-3">
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Avg Latency</span>
-                    <strong>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "N/A"}</strong>
+                    <strong style={{ fontSize: 13 }}>{latencyStats.avg ? `${latencyStats.avg.toFixed(1)} ms` : "N/A"}</strong>
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Min / Max</span>
-                    <strong>
+                    <strong style={{ fontSize: 13 }}>
                       {latencyStats.avg
                         ? `${latencyStats.min.toFixed(0)} / ${latencyStats.max.toFixed(0)}`
                         : "N/A"}
@@ -2102,7 +2363,7 @@ export default function App() {
                   </div>
                   <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span className="fd-det-coords">Est. FPS</span>
-                    <strong>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "N/A"}</strong>
+                    <strong style={{ fontSize: 13 }}>{latencyStats.fps ? latencyStats.fps.toFixed(1) : "N/A"}</strong>
                   </div>
                 </div>
                 <div className="fd-det-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -2121,7 +2382,7 @@ export default function App() {
                       />
                     </svg>
                   ) : (
-                    <p style={{ margin: "12px 0", fontSize: 12, color: "var(--muted)" }}>
+                    <p style={{ margin: "10px 0", fontSize: 12, color: "var(--muted)" }}>
                       Run at least 2 detections to plot the latency sparkline.
                     </p>
                   )}
@@ -2132,7 +2393,7 @@ export default function App() {
             {inspectorTab === "history" && (
               <div className="fd-det-list">
                 {history.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "24px 0" }}>
+                  <p style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
                     Completed detection snapshots will appear here.
                   </p>
                 ) : (
@@ -2149,7 +2410,7 @@ export default function App() {
                     >
                       <div className="fd-det-left">
                         <img src={item.imageUrl} alt="Snapshot" className="fd-avatar" />
-                        <div>
+                        <div style={{ minWidth: 0 }}>
                           <div className="fd-det-name">
                             {item.detections.length} face{item.detections.length === 1 ? "" : "s"} ({item.mode})
                           </div>
@@ -2167,7 +2428,7 @@ export default function App() {
 
             {inspectorTab === "json" && (
               <div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                   <button
                     className="fd-chip on"
                     onClick={() => {
@@ -2192,6 +2453,9 @@ export default function App() {
           </Soft3DCard>
         </div>
       </main>
+
+      {/* Cross-Platform PWA Install Dialog Host */}
+      <div ref={pwaHostRef} />
 
       {/* Backend Connection Settings Modal */}
       {settingsOpen && (
@@ -2219,7 +2483,7 @@ export default function App() {
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
               <button className="fd-btn-secondary" onClick={() => void handlePingHealth()}>
                 Ping /health
               </button>
